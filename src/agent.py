@@ -189,68 +189,84 @@ async def generate_greeting(user_msg: str, history: list) -> str:
     chunks = [t async for t in stream_llm_response(system_prompt, history, user_msg)]
     return "".join(chunks).strip()
 
+def should_allow_steps(user_msg: str, last_topic: Optional[str]) -> bool:
+    steps_keywords = {"steps", "more", "instructions", "guide", "procedure"}
+    msg_lower = user_msg.lower()
+    
+    asks_for_steps = any(kw in msg_lower for kw in steps_keywords)
+    
+    if asks_for_steps:
+        if last_topic == "Security/Login" or last_topic == "MFA":
+            return True
+        return False  
+        
+    return True  
+
 
 # -------------------------
 # Core Agent Node
 # -------------------------
 @time_logger
 async def blossom_node(state: AgentState):
-    topic=None
-    """Core Blossom Agent Node with Domain Gating and RAG + MCP integration."""
     user_msg = state["message"].strip()
     history = state.get("history", [])
     user_date_str = state.get("user_date", datetime.now().strftime("%Y-%m-%d"))
     current_dt = datetime.strptime(user_date_str, "%Y-%m-%d")
     day_name = current_dt.strftime("%A")
-
+    
+    last_topic = state.get("topic")
 
     if check_farewell(user_msg):
         farewell_message = await generate_farewell(user_msg, history)
         return {"answer": farewell_message, "topic": None, "history": [], "latency_ms": 0}
-    is_in_scope = determine_scope(user_msg)
-    logger.info(f"Blossom Agent: is_in_scope={is_in_scope} for message='{user_msg}'")
 
+    if not should_allow_steps(user_msg, last_topic):
+        out_of_scope_response = await generate_out_of_scope_response(user_msg, history)
+        return {
+            "answer": out_of_scope_response, 
+            "topic": "Out of Scope", 
+            "history": (history + [{"role": "user", "content": user_msg}, {"role": "assistant", "content": out_of_scope_response}])[-10:]
+        }
+
+    is_in_scope = determine_scope(user_msg)
     docs, holiday_name = await asyncio.gather(
-    retrieve_docs(user_msg) if is_in_scope else asyncio.sleep(0, []),
-    fetch_holiday_name(user_date_str)
+        retrieve_docs(user_msg) if is_in_scope else asyncio.sleep(0, []),
+        fetch_holiday_name(user_date_str)
     )
-    if check_greeting(user_msg) or topic=="Greeting":
+
+    if check_greeting(user_msg):
         greeting_response = await generate_greeting(user_msg, history)
         return {
-                "answer": greeting_response,
-                "topic": "Greeting",
-                "history": (history + [{"role": "user", "content": user_msg}, {"role": "assistant", "content": greeting_response}])[-10:],
-                "latency_ms": 0
-            }
-    if not is_in_scope or topic=="Out of Scope":
+            "answer": greeting_response,
+            "topic": "Greeting",
+            "history": (history + [{"role": "user", "content": user_msg}, {"role": "assistant", "content": greeting_response}])[-10:]
+        }
+
+    if not is_in_scope or (is_in_scope and not docs):
         out_of_scope_response = await generate_out_of_scope_response(user_msg, history)
         return {
             "answer": out_of_scope_response,
             "topic": "Out of Scope",
-            "history": (history + [{"role": "user", "content": user_msg}, {"role": "assistant", "content": out_of_scope_response}])[-10:],
-            "latency_ms": 0
+            "history": (history + [{"role": "user", "content": user_msg}, {"role": "assistant", "content": out_of_scope_response}])[-10:]
         }
- 
-    system_prompt = build_prompt(docs, day_name, user_date_str, holiday_name)
 
-  
+    system_prompt = build_prompt(docs, day_name, user_date_str, holiday_name)
     chunks = [t async for t in stream_llm_response(system_prompt, history, user_msg)]
     full_response = "".join(chunks).strip()
-    
-    if is_in_scope and docs:
-        docs_with_tags = [d for d in docs if d.metadata.get("tags")]
-        if docs_with_tags:
-            primary = docs_with_tags[0].metadata
-            source_tag = f"\n\n—\nSource: {primary.get('source')} (Page {primary.get('page')})"
-            topic = primary.get("tags")
+
+    current_topic = "Security/Login"
+    source_tag = ""
+    if docs:
+        primary = docs[0].metadata
+        source_tag = f"\n\n—\nSource: {primary.get('source')} (Page {primary.get('page')})"
+        current_topic = primary.get("tags", "Security/Login")
 
     return {
         "answer": f"{full_response}{source_tag}",
-        "topic": topic,
+        "topic": current_topic,
         "history": (history + [{"role": "user", "content": user_msg}, {"role": "assistant", "content": full_response}])[-10:],
         "latency_ms": 0
     }
-
 # -------------------------
 # Graph definition
 # -------------------------
