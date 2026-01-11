@@ -3,33 +3,41 @@ import glob
 import logging
 import json
 import chromadb
-from chromadb.config import Settings
 from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
 
-# --- CORRECCIÓN DE RUTAS PARA RAILWAY ---
-# Usamos el directorio de trabajo actual para asegurar permisos de escritura
+# --- PATH CONFIGURATION ---
+# Railway uses /app as workdir. os.getcwd() is the safest reference.
 BASE_DIR = os.getcwd() 
 CHROMA_PATH = os.path.join(BASE_DIR, "chroma_db")
 DATA_PATH = os.path.join(BASE_DIR, "data")
 MAPPING_EXPORT_PATH = os.path.join(CHROMA_PATH, "embeddings_mapping.json")
 
-# Asegurar que los directorios existan ANTES de inicializar Chroma
+# ENSURE DIRECTORIES EXIST IMMEDIATELY
 os.makedirs(CHROMA_PATH, exist_ok=True)
 os.makedirs(DATA_PATH, exist_ok=True)
 
 logger = logging.getLogger("blossom_agent.database")
+
+# Global variables for singleton instances
+_CHROMA_CLIENT = None
 _RETRIEVER_INSTANCE = None
 
-# Inicialización segura del cliente persistente
-try:
-    _CHROMA_CLIENT = chromadb.PersistentClient(path=CHROMA_PATH)
-    logger.info(f"ChromaDB client initialized at {CHROMA_PATH}")
-except Exception as e:
-    logger.error(f"Failed to initialize ChromaDB: {e}")
-    raise
+def get_chroma_client():
+    """Lazy initialization of the Chroma client to prevent start-up errors."""
+    global _CHROMA_CLIENT
+    if _CHROMA_CLIENT is None:
+        try:
+            # Code 14 fix: Ensure path is absolute and exists
+            _CHROMA_CLIENT = chromadb.PersistentClient(path=CHROMA_PATH)
+            logger.info(f"ChromaDB PersistentClient initialized at {CHROMA_PATH}")
+        except Exception as e:
+            logger.error(f"Critical error initializing ChromaDB: {e}")
+            raise
+    return _CHROMA_CLIENT
+
 ALLOWED_DOCS = [
     "Magic Training — Back Office",
     "Magic Training (Member admin)",
@@ -41,7 +49,6 @@ ALLOWED_DOCS = [
 ]
 
 def _get_tags(text: str) -> str:
-    """Extract tags and return as a comma-separated string."""
     mapping = {
         "password": ["password", "reset", "credential"],
         "lockout": ["lockout", "locked", "attempts", "suspend"],
@@ -75,7 +82,6 @@ def _load_pdf_documents():
     return documents
 
 def _export_embeddings_dictionary(chunks):
-    """Generates a JSON file mapping each chunk to its source and summary."""
     mapping = []
     for i, chunk in enumerate(chunks):
         mapping.append({
@@ -85,25 +91,19 @@ def _export_embeddings_dictionary(chunks):
             "tags": chunk.metadata.get("tags"),
             "preview": chunk.page_content[:150].replace("\n", " ") + "..."
         })
-    
     with open(MAPPING_EXPORT_PATH, 'w', encoding='utf-8') as f:
         json.dump(mapping, f, indent=4, ensure_ascii=False)
-    logger.info(f"Embeddings dictionary exported to {MAPPING_EXPORT_PATH}")
 
 def run_ingestion(force_rebuild: bool = False) -> bool:
-    """Persists embeddings. If chroma.sqlite3 exists, skips to save costs."""
-    # Verificación adicional de existencia de la DB
     db_file = os.path.join(CHROMA_PATH, "chroma.sqlite3")
-    db_exists = os.path.exists(db_file)
-    
-    if not force_rebuild and db_exists:
+    if not force_rebuild and os.path.exists(db_file):
         logger.info("Local Chroma DB found. Skipping ingestion.")
         return True
 
     logger.info("Starting ingestion process...")
     documents = _load_pdf_documents()
     if not documents:
-        logger.warning("No documents found in DATA_PATH to ingest.")
+        logger.warning("No documents found to ingest.")
         return False
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
@@ -112,7 +112,7 @@ def run_ingestion(force_rebuild: bool = False) -> bool:
     Chroma.from_documents(
         documents=chunks,
         embedding=OpenAIEmbeddings(model=os.getenv("EMBEDDING_MODEL_NAME", "text-embedding-3-small")),
-        client=_CHROMA_CLIENT,
+        client=get_chroma_client(),
         collection_name="blossom_security_v1"
     )
     
@@ -124,10 +124,9 @@ def get_active_retriever():
     global _RETRIEVER_INSTANCE
     if _RETRIEVER_INSTANCE is None:
         vector_db = Chroma(
-            client=_CHROMA_CLIENT,
+            client=get_chroma_client(),
             collection_name="blossom_security_v1",
             embedding_function=OpenAIEmbeddings(model=os.getenv("EMBEDDING_MODEL_NAME", "text-embedding-3-small")),
         )
-        # Aumentamos a k=3 para aprovechar mejor los embeddings en las respuestas
         _RETRIEVER_INSTANCE = vector_db.as_retriever(search_kwargs={"k": 3})
     return _RETRIEVER_INSTANCE
