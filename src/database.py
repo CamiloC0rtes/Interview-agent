@@ -10,11 +10,11 @@ from langchain_community.document_loaders import PyPDFLoader
 
 # --- PATH CONFIGURATION ---
 # Railway uses /app as workdir. os.getcwd() is the safest reference.
-BASE_DIR = os.getcwd() 
+# --- PATH CONFIGURATION ---
+BASE_DIR = "/tmp"  
 CHROMA_PATH = os.path.join(BASE_DIR, "chroma_db")
 DATA_PATH = os.path.join(BASE_DIR, "data")
 
-# ENSURE DIRECTORIES EXIST IMMEDIATELY
 os.makedirs(CHROMA_PATH, exist_ok=True)
 os.makedirs(DATA_PATH, exist_ok=True)
 
