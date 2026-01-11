@@ -12,10 +12,9 @@ logger = logging.getLogger("blossom_agent.database")
 # ------------------------------------------------------------------
 # PATH CONFIGURATION
 # ------------------------------------------------------------------
-# Project root = blossom-agent
-BASE_DIR = os.getcwd()                     # /app/blossom-agent
-DATA_PATH = os.path.join(BASE_DIR, "data") # PDFs live in repo (read-only)
-CHROMA_PATH = "/tmp/chroma_db"              # Writable in containers
+BASE_DIR = os.getcwd()                     
+DATA_PATH = os.path.join(BASE_DIR, "data") 
+CHROMA_PATH = "/tmp/chroma_db"            
 
 os.makedirs(CHROMA_PATH, exist_ok=True)
 

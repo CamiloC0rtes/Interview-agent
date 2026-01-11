@@ -1,0 +1,67 @@
+{
+  "latencies_s": [
+    1.7379604999441653,
+    1.95866040000692,
+    2.3063105000182986,
+    2.351159800076857,
+    2.6881434000097215,
+    3.1403391999192536,
+    3.718858800129965,
+    3.881416999967769,
+    4.027252200059593,
+    4.204694400075823
+  ],
+  "p95_s": 4.204694400075823,
+  "responses": [
+    {
+      "prompt": "I got locked out after entering the wrong password. Can I unlock myself?",
+      "answer": "I'm sorry to hear that you're locked out! Unfortunately, since today is Martin Luther King, Jr. Day, manual reviews and assistance will resume on the next business day. \n\nIn the meantime, you can try resetting your password through the \"Forgot Password\" option on the login page. If you need further assistance with that process, feel free to ask!\n\n\u2014\nSource: Detailed_Security_Protocol.pdf (Page 4)",
+      "latency_s": 2.351159800076857
+    },
+    {
+      "prompt": "What are the password rules? Can you list them quickly?",
+      "answer": "Sure! Here are the password rules for Blossom Banking:\n\n1. Minimum 12 characters, maximum 128 characters.\n2. Must include characters from at least three of the following groups:\n   - Latin uppercase letters (A-Z)\n   - Latin lowercase letters (a-z)\n   - Digits (0-9)\n   - Non-alphanumeric symbols (!, $, #, %)\n3. Cannot contain your date of birth or social security number digits.\n4. Passwords expire every 180 days for standard users and every 60 days for administrators.\n\nIf you have any more questions or need help with anything else, feel free to ask!\n\n\u2014\nSource: Detailed_Security_Protocol.pdf (Page 2)",
+      "latency_s": 3.1403391999192536
+    },
+    {
+      "prompt": "Why do I keep getting verification codes when I log in?",
+      "answer": "It sounds like you might be encountering issues with your Multi-Factor Authentication (MFA) setup. If you're receiving verification codes every time you log in, it could be due to a few reasons:\n\n1. **Device Not Remembered**: If you haven't selected the \"Remember this device\" option during your login, your device won't be recognized for future logins, prompting MFA each time.\n\n2. **Cookie Expiration**: If you did select \"Remember this device,\" keep in mind that this setting is valid for 30 days. After that period, you'll need to go through MFA again.\n\n3. **Location Change**: If you're logging in from a location that's more than 500 miles away from your last successful login, an 'Identity Alert' email is triggered, and you may be required to verify your identity again.\n\nIf you continue to experience issues, please check your device settings or consider reaching out for further assistance once manual reviews resume on the next business day. Enjoy your Martin Luther King, Jr. Day! (source: federal holiday API)\n\n\u2014\nSource: Detailed_Security_Protocol.pdf (Page 3)",
+      "latency_s": 4.027252200059593
+    },
+    {
+      "prompt": "How often does 'remember this device' expire?",
+      "answer": "The \"remember this device\" feature typically remains active until you clear your browser's cookies or cache, or if you log in from a different device or browser. However, specific policies can vary by bank. If you have further questions about your account settings, I recommend checking your banking portal or contacting customer support for detailed information. \n\nIf you need help with anything else related to login or security, feel free to ask!",
+      "latency_s": 1.95866040000692
+    },
+    {
+      "prompt": "I forgot my username \u2014 how do I recover it?",
+      "answer": "No worries! To recover your username, please follow these steps:\n\n1. Submit a 'Forgot Username' request via the web portal.\n2. Check your secondary email for a masked hint that will help you remember your username.\n3. If the hint isn't enough, you'll need to provide the last 4 digits of your Blossom Debit Card and the ZIP code of your primary residence.\n4. Once your identity is confirmed, your username will be displayed on the screen for 60 seconds.\n\nIf you have any questions or need further assistance, feel free to ask! Just a reminder, today is Martin Luther King, Jr. Day, so manual reviews will resume on the next business day (source: federal holiday API).\n\n\u2014\nSource: Detailed_Security_Protocol.pdf (Page 4)",
+      "latency_s": 3.718858800129965
+    },
+    {
+      "prompt": "I changed phones and now my codes don\u2019t work. What should I do?",
+      "answer": "It sounds like you're having trouble with your multi-factor authentication (MFA) codes after changing phones. Since it's Martin Luther King, Jr. Day today, manual reviews will resume on the next business day, but I can guide you through some steps you can take right now:\n\n1. **Check for Backup Codes**: If you have backup codes saved from when you set up MFA, you can use one of those to log in.\n\n2. **Reinstall the Authenticator App**: If you were using an authenticator app, try reinstalling it on your new phone and see if you can restore your account.\n\n3. **Contact Customer Support**: If those options don't work, please reach out to customer support for assistance. They can help you reset your MFA settings.\n\nLet me know if you need more help!",
+      "latency_s": 4.204694400075823
+    },
+    {
+      "prompt": "Please help me reset my password safely.",
+      "answer": "I can guide you through the password reset process! However, since today is Martin Luther King, Jr. Day, manual reviews will resume on the next business day. \n\nTo reset your password, please follow these steps:\n\n1. Go to the login page and click on the \"Forgot Password?\" link.\n2. Enter your username or the email associated with your account.\n3. Follow the instructions sent to your email to reset your password.\n\nRemember, your new password must meet the following criteria:\n- At least 12 characters long.\n- Include characters from at least three of these groups: uppercase letters, lowercase letters, digits, and non-alphanumeric symbols.\n- Cannot contain your date of birth or social security number digits.\n\nIf you need further assistance, feel free to ask!\n\n\u2014\nSource: Detailed_Security_Protocol.pdf (Page 4)",
+      "latency_s": 3.881416999967769
+    },
+    {
+      "prompt": "Can I unlock a phone\u2010banking user without calling support?",
+      "answer": "I'm sorry, but I can only assist with login, password, MFA, or security topics. For unlocking a phone-banking user, you would need to contact support directly. If you have any questions about your login or security settings, feel free to ask!\n\n\u2014\nSource: Detailed_Security_Protocol.pdf (Page 4)",
+      "latency_s": 1.7379604999441653
+    },
+    {
+      "prompt": "I signed up, but I\u2019m stuck \u2014 where do I finish my setup?",
+      "answer": "It sounds like you're in the process of setting up your account! To finish your setup, please log in to your banking portal. Once you're logged in, you should see prompts or sections that guide you through completing your setup.\n\nIf you encounter any issues or need specific assistance, please reach out to customer support for help. Since today is Martin Luther King, Jr. Day, manual reviews will resume on the next business day (source: federal holiday API). If you have any other questions about login or security, feel free to ask!",
+      "latency_s": 2.6881434000097215
+    },
+    {
+      "prompt": "If I start a password reset on a federal holiday, when should I expect the next step?",
+      "answer": "If you start a password reset on a federal holiday, like today, you can expect the next step to resume on the next business day. Since today is Martin Luther King, Jr. Day (source: federal holiday API), manual reviews will continue tomorrow. If you have any other questions about the process, feel free to ask!\n\n\u2014\nSource: Detailed_Security_Protocol.pdf (Page 4)",
+      "latency_s": 2.3063105000182986
+    }
+  ]
+}

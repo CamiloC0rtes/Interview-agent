@@ -84,7 +84,6 @@ async def health():
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(req: ChatRequest):
-    """Main execution entry point for the LangGraph agent."""
     start_time = time.perf_counter()
     result = await blossom_app.ainvoke(req.model_dump())
     duration_ms = (time.perf_counter() - start_time) * 1000
@@ -96,7 +95,6 @@ async def chat_endpoint(req: ChatRequest):
         "history": result.get("history", []),
         "timing_ms": round(duration_ms, 2)
     }
-
 @app.get("/chat/stream")
 async def chat_stream(message: str):
     """SSE endpoint for progressive UI rendering."""

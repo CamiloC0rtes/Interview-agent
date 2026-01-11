@@ -1,4 +1,4 @@
-import time, asyncio, functools, json, logging, os
+import time, asyncio, functools, json, logging, os, re
 from typing import TypedDict, Optional
 from langgraph.graph import StateGraph, END
 from langchain_openai import ChatOpenAI
@@ -24,6 +24,9 @@ class AgentState(TypedDict):
     temperature: Optional[float]
     top_p: Optional[float]
 
+# -------------------------
+# Decorators
+# -------------------------
 def time_logger(func):
     """Observability decorator for node latency tracking."""
     @functools.wraps(func)
@@ -31,12 +34,16 @@ def time_logger(func):
         start = time.perf_counter()
         result = await func(*args, **kwargs)
         duration = (time.perf_counter() - start) * 1000
-        if isinstance(result, dict): result["latency_ms"] = round(duration, 2)
+        if isinstance(result, dict):
+            result["latency_ms"] = round(duration, 2)
         logger.info(f"⏱️ Node {func.__name__} latency: {duration:.2f}ms")
         return result
     return wrapper
 
-async def call_mcp_holidays():
+# -------------------------
+# MCP / Holiday Utilities
+# -------------------------
+async def call_mcp_holidays() -> str:
     """Fetches federal holiday data via MCP Server."""
     try:
         params = StdioServerParameters(command="python", args=["src/mcp_server.py"])
@@ -50,6 +57,31 @@ async def call_mcp_holidays():
         logger.error(f"MCP Connection Error: {e}")
         return "[]"
 
+async def fetch_holiday_name(user_date_str: str) -> Optional[str]:
+    """Returns the holiday name for the given date, parsing plain text from MCP."""
+    global _CACHED_HOLIDAYS
+    if not _CACHED_HOLIDAYS:
+        try:
+
+            _CACHED_HOLIDAYS = await call_mcp_holidays()
+        except Exception as e:
+            logger.error(f"Error fetching holidays: {e}")
+            return None
+
+    try:
+        lines = _CACHED_HOLIDAYS.strip().split('\n')
+        for line in lines:
+            if ":" in line:
+                date_part, name_part = line.split(":", 1)
+                if date_part.strip() == user_date_str:
+                    return name_part.strip()
+        return None
+    except Exception as e:
+        logger.error(f"Error parsing plain text holidays: {e}")
+        return None
+# -------------------------
+# LLM Utilities
+# -------------------------
 async def stream_llm_response(system_prompt, history, user_message, temp=0.2, top_p=0.9):
     """Internal helper for LLM streaming token generation."""
     messages = [SystemMessage(content=system_prompt)]
@@ -57,89 +89,126 @@ async def stream_llm_response(system_prompt, history, user_message, temp=0.2, to
     for msg in history[-4:]:
         role = HumanMessage if msg["role"] == "user" else AIMessage
         messages.append(role(content=msg["content"]))
-    
     messages.append(HumanMessage(content=user_message))
     async for chunk in llm_client.astream(messages, temperature=temp, top_p=top_p):
-        if chunk.content: yield chunk.content
+        if chunk.content:
+            yield chunk.content
 
+# -------------------------
+# Domain / Keyword Checks
+# -------------------------
+def check_farewell(user_msg: str) -> bool:
+    """Return True if the user wants to end the session."""
+    reset_keywords = {"thanks", "thank you", "i'm done", "done", "no thanks", "stop"}
+    user_msg_lower = user_msg.lower()
+    return any(kw in user_msg_lower for kw in reset_keywords)
+
+def determine_scope(user_msg: str) -> bool:
+    """Return True if message is related to security/login."""
+    security_keywords = {
+    "login", "sign in", "password", "lock", "access", "mfa",
+    "verification", "code", "otp", "remember device", "username",
+    "unlock", "security", "can't login", "cannot login", "forgot password",
+    "two factor", "2fa","unlocking", "unlock my account","user"
+    }
+    user_msg_lower = user_msg.lower()
+    return any(re.search(rf'\b{kw}\b', user_msg_lower) for kw in security_keywords)
+
+async def retrieve_docs(user_msg: str) -> list:
+    """Fetch documents from the retriever if message is in scope."""
+    try:
+        return await get_active_retriever().ainvoke(user_msg)
+    except Exception as e:
+        logger.error(f"Error retrieving docs: {e}")
+        return []
+
+# -------------------------
+# Prompt Construction
+# -------------------------
+def build_prompt(docs: list, day_name: str, user_date_str: str, holiday_name: Optional[str]) -> str:
+    """Construct LLM prompt including policies, protocols, and sources."""
+    context_text = "\n".join(
+        f"[Source: {d.metadata.get('source')}, Page: {d.metadata.get('page')}]: {d.page_content}"
+        for d in docs
+    )
+    holiday_message = (
+        f"Current Holiday: {holiday_name}. Manual reviews will resume next business day."
+        if holiday_name else
+        "Today is not a federal holiday. Your password reset should proceed without delay."
+    )
+    return (
+        "You are Blossom, a premium banking assistant specialized in Login/Security. "
+        f"Today is {day_name}, {user_date_str}. {holiday_message}\n"
+        "\nPOLICIES:\n"
+        "- Only help with login, password, MFA, or security topics.\n"
+        "- Vary your tone naturally based on user input (be helpful and warm).\n"
+        "- If it is a holiday, mention that manual reviews resume next business day.\n"
+        "- Mention '(source: federal holiday API)' when discussing dates or holidays.\n"
+        "\nPROTOCOLS:\n"
+        f"{context_text if docs else 'I do not have access to that information. Please contact customer support for assistance or follow the next steps provided in your banking portal.'}"
+    )
+
+async def generate_farewell(user_msg: str, history: list) -> str:
+    """Generate warm farewell message."""
+    system_prompt = (
+        "You are Blossom, a friendly banking assistant. "
+        "The user has finished their session. "
+        "Generate a short, warm, polite farewell message that encourages them "
+        "to come back if they need help with login, passwords, or security."
+    )
+    chunks = [t async for t in stream_llm_response(system_prompt, history, user_msg)]
+    return "".join(chunks).strip()
+
+# -------------------------
+# Core Agent Node
+# -------------------------
 @time_logger
 async def blossom_node(state: AgentState):
-    global _CACHED_HOLIDAYS
-
-    # 1. State extraction & temporal context (source: federal holiday API)
+    """Core Blossom Agent Node with Domain Gating and RAG + MCP integration."""
     user_msg = state["message"].strip()
     history = state.get("history", [])
     user_date_str = state.get("user_date", datetime.now().strftime("%Y-%m-%d"))
     current_dt = datetime.strptime(user_date_str, "%Y-%m-%d")
     day_name = current_dt.strftime("%A")
 
-    # 2. Domain Gating Logic
-    user_msg_lower = user_msg.lower()
-    security_keywords = {
-        "login", "sign in", "password", "lock", "access", "mfa", "verification", 
-        "code", "otp", "remember", "device", "username", "unlock", "security"
-    }
-    is_in_scope = any(kw in user_msg_lower for kw in security_keywords) or not history
 
-    # 3. Concurrent Retrieval (RAG + MCP)
-    tasks = []
-    if is_in_scope:
-        tasks.append(get_active_retriever().ainvoke(user_msg))
-    else:
-        tasks.append(asyncio.sleep(0)) 
+    if check_farewell(user_msg):
+        farewell_message = await generate_farewell(user_msg, history)
+        return {"answer": farewell_message, "topic": None, "history": [], "latency_ms": 0}
+    is_in_scope = determine_scope(user_msg)
+    logger.info(f"Blossom Agent: is_in_scope={is_in_scope} for message='{user_msg}'")
 
-    if not _CACHED_HOLIDAYS:
-        tasks.append(call_mcp_holidays())
-    
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    docs = results[0] if is_in_scope and not isinstance(results[0], Exception) and results[0] != 0 else []
-    
-    # 4. Holiday parsing from MCP Cache
-    holiday_name = None
-    if _CACHED_HOLIDAYS:
-        try:
-            holidays = json.loads(_CACHED_HOLIDAYS)
-            current_h = next((h for h in holidays if h.get("date") == user_date_str), None)
-            if current_h: holiday_name = current_h.get("name")
-        except: pass
-
-    # 5. Prompt Construction (Grounding & Personality)
-    context_text = "\n".join([
-        f"[Source: {d.metadata.get('source')}, Page: {d.metadata.get('page')}]: {d.page_content}" 
-        for d in docs
-    ])
-    
-    system_prompt = (
-        "You are Blossom, a premium banking assistant specialized in Login/Security. "
-        f"Today is {day_name}, {user_date_str}. "
-        f"{f'Current Holiday: {holiday_name}.' if holiday_name else ''} "
-        "\nPOLICIES:\n"
-        "- Only help with login, password, MFA, or security topics.\n"
-        "- Vary your tone naturally based on user input (be helpful and warm).\n"
-        "- If it is a weekend or holiday, mention that manual reviews resume next business day.\n"
-        "- Mention '(source: federal holiday API)' when discussing dates or holidays.\n"
-        "\nPROTOCOLS:\n"
-        f"{context_text if docs else 'No specific protocol found. Use general security best practices.'}"
+    docs, holiday_name = await asyncio.gather(
+    retrieve_docs(user_msg) if is_in_scope else asyncio.sleep(0, []),
+    fetch_holiday_name(user_date_str)
     )
+ 
+    system_prompt = build_prompt(docs, day_name, user_date_str, holiday_name)
 
-    # 6. Response Synthesis
+  
     chunks = [t async for t in stream_llm_response(system_prompt, history, user_msg)]
     full_response = "".join(chunks).strip()
 
-    # 7. Metadata Attribution
+
     source_tag = ""
-    if docs:
-        primary = docs[0].metadata
-        source_tag = f"\n\n—\nSource: {primary.get('source')} (Page {primary.get('page')})"
+    topic = "Security/Login"
+    if is_in_scope and docs:
+        docs_with_tags = [d for d in docs if d.metadata.get("tags")]
+        if docs_with_tags:
+            primary = docs_with_tags[0].metadata
+            source_tag = f"\n\n—\nSource: {primary.get('source')} (Page {primary.get('page')})"
+            topic = primary.get("tags")
 
     return {
         "answer": f"{full_response}{source_tag}",
-        "topic": "Security/Login",
+        "topic": topic,
         "history": (history + [{"role": "user", "content": user_msg}, {"role": "assistant", "content": full_response}])[-10:],
-        "timing_ms": 0
+        "latency_ms": 0
     }
 
-# 8. Graph definition
+# -------------------------
+# Graph definition
+# -------------------------
 builder = StateGraph(AgentState)
 builder.add_node("blossom", blossom_node)
 builder.set_entry_point("blossom")
