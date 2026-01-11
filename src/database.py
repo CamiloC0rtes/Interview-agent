@@ -13,7 +13,6 @@ from langchain_community.document_loaders import PyPDFLoader
 BASE_DIR = os.getcwd() 
 CHROMA_PATH = os.path.join(BASE_DIR, "chroma_db")
 DATA_PATH = os.path.join(BASE_DIR, "data")
-MAPPING_EXPORT_PATH = os.path.join(CHROMA_PATH, "embeddings_mapping.json")
 
 # ENSURE DIRECTORIES EXIST IMMEDIATELY
 os.makedirs(CHROMA_PATH, exist_ok=True)
@@ -22,19 +21,20 @@ os.makedirs(DATA_PATH, exist_ok=True)
 logger = logging.getLogger("blossom_agent.database")
 
 # Global variables for singleton instances
-_CHROMA_CLIENT = None
 _RETRIEVER_INSTANCE = None
+_CHROMA_CLIENT = None
 
 def get_chroma_client():
-    """Lazy initialization of the Chroma client to prevent start-up errors."""
+    """Crea el cliente solo cuando se solicita, evitando el Error 14 al importar."""
     global _CHROMA_CLIENT
     if _CHROMA_CLIENT is None:
+        # Aseguramos que la carpeta exista con permisos justo antes de abrirla
+        os.makedirs(CHROMA_PATH, exist_ok=True)
         try:
-            # Code 14 fix: Ensure path is absolute and exists
             _CHROMA_CLIENT = chromadb.PersistentClient(path=CHROMA_PATH)
-            logger.info(f"ChromaDB PersistentClient initialized at {CHROMA_PATH}")
+            logger.info(f"ChromaDB initialized successfully at {CHROMA_PATH}")
         except Exception as e:
-            logger.error(f"Critical error initializing ChromaDB: {e}")
+            logger.error(f"Error opening ChromaDB: {e}")
             raise
     return _CHROMA_CLIENT
 
@@ -80,20 +80,6 @@ def _load_pdf_documents():
         except Exception as e:
             logger.error(f"Error loading {pdf_path}: {e}")
     return documents
-
-def _export_embeddings_dictionary(chunks):
-    mapping = []
-    for i, chunk in enumerate(chunks):
-        mapping.append({
-            "chunk_id": i,
-            "source": chunk.metadata.get("source"),
-            "page": chunk.metadata.get("page"),
-            "tags": chunk.metadata.get("tags"),
-            "preview": chunk.page_content[:150].replace("\n", " ") + "..."
-        })
-    with open(MAPPING_EXPORT_PATH, 'w', encoding='utf-8') as f:
-        json.dump(mapping, f, indent=4, ensure_ascii=False)
-
 def run_ingestion(force_rebuild: bool = False) -> bool:
     db_file = os.path.join(CHROMA_PATH, "chroma.sqlite3")
     if not force_rebuild and os.path.exists(db_file):
@@ -115,8 +101,6 @@ def run_ingestion(force_rebuild: bool = False) -> bool:
         client=get_chroma_client(),
         collection_name="blossom_security_v1"
     )
-    
-    _export_embeddings_dictionary(chunks)
     logger.info(f"Success: Vector store persisted in {CHROMA_PATH}.")
     return True
 
