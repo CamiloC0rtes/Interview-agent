@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Blossom | Security Assistant</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
         body { font-family: 'Inter', sans-serif; }
@@ -17,17 +18,25 @@
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 10px; }
+        
+        /* Estilos Markdown */
+        .prose ul { list-style-type: disc; margin-left: 1.25rem; margin-bottom: 0.5rem; }
+        .prose strong { font-weight: 700; color: #065f46; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
     </style>
 </head>
 <body class="bg-[#F9FAFB] h-screen flex flex-col overflow-hidden">
     <header class="bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center shadow-sm z-10">
         <div class="flex items-center gap-3">
-            <div class="bg-emerald-100 text-emerald-700 p-2 rounded-xl">
+            <div class="bg-emerald-100 text-emerald-700 p-2 rounded-xl relative">
                 <span class="text-xl">🌸</span>
+                <div id="status-indicator" class="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-gray-300 border-2 border-white rounded-full"></div>
             </div>
             <div>
                 <h1 class="text-sm font-bold text-gray-900 tracking-tight">Blossom AI</h1>
-                <p class="text-[10px] text-emerald-600 font-semibold uppercase tracking-widest">Security Concierge</p>
+                <p class="text-[10px] text-emerald-600 font-semibold uppercase tracking-widest flex items-center gap-1">
+                    Security Concierge <span id="health-status" class="normal-case font-normal text-gray-400">(Connecting...)</span>
+                </p>
             </div>
         </div>
         
@@ -43,14 +52,21 @@
                     <input id="top-p-knob" type="number" step="0.1" value="0.9" class="bg-transparent text-xs font-mono outline-none text-emerald-700">
                 </div>
             </div>
-            <button id="reset-btn" class="text-xs font-semibold text-gray-500 hover:text-red-500 transition-colors">Clear Chat</button>
+            <button id="reset-btn" class="text-xs font-semibold text-gray-400 hover:text-red-500 transition-colors px-3 py-1 border border-gray-200 rounded-lg">Clear Chat</button>
         </div>
     </header>
 
+    <div id="suggestions" class="px-6 py-4 flex gap-2 overflow-x-auto no-scrollbar bg-[#F9FAFB] border-b border-gray-50">
+        <button onclick="quickAsk('I forgot my password')" class="whitespace-nowrap bg-white border border-gray-200 text-gray-600 text-[11px] py-1.5 px-4 rounded-full hover:border-emerald-500 hover:text-emerald-600 transition-all shadow-sm">Forgot Password</button>
+        <button onclick="quickAsk('Is my account locked?')" class="whitespace-nowrap bg-white border border-gray-200 text-gray-600 text-[11px] py-1.5 px-4 rounded-full hover:border-emerald-500 hover:text-emerald-600 transition-all shadow-sm">Account Status</button>
+        <button onclick="quickAsk('How do I enable MFA?')" class="whitespace-nowrap bg-white border border-gray-200 text-gray-600 text-[11px] py-1.5 px-4 rounded-full hover:border-emerald-500 hover:text-emerald-600 transition-all shadow-sm">Enable MFA</button>
+        <button onclick="quickAsk('Report suspicious activity')" class="whitespace-nowrap bg-white border border-gray-200 text-gray-600 text-[11px] py-1.5 px-4 rounded-full hover:border-emerald-500 hover:text-emerald-600 transition-all shadow-sm">Report Fraud</button>
+    </div>
+
     <div id="chat" class="flex-1 p-6 overflow-y-auto space-y-8 scroll-smooth">
-        <div class="flex justify-center">
-            <div class="bg-emerald-50 text-emerald-700 text-[10px] font-bold py-1 px-4 rounded-full uppercase tracking-widest border border-emerald-100">
-                End-to-End Encrypted Session
+        <div class="flex justify-center mb-4">
+            <div class="bg-white text-gray-400 text-[10px] font-bold py-1 px-4 rounded-full uppercase tracking-widest border border-gray-100 shadow-sm">
+                Secure Session Active
             </div>
         </div>
     </div>
@@ -59,11 +75,11 @@
         <div class="flex items-center gap-3">
             <span id="session-info">Session: <span class="text-gray-600 font-mono" id="sid-label">...</span></span>
             <span class="text-gray-200">|</span>
-            <span id="topic-info">Current Scope: <span class="text-emerald-600 font-bold" id="topic-label">Security</span></span>
+            <span id="topic-info">Scope: <span class="text-emerald-600 font-bold" id="topic-label">General</span></span>
         </div>
         <div class="flex gap-4">
-            <span id="sl-box">Server Latency: <span id="server-latency" class="text-gray-600">0ms</span></span>
-            <span id="cl-box">Roundtrip: <span id="latency" class="text-gray-600">0ms</span></span>
+            <span>Server: <span id="server-latency" class="text-gray-600">0ms</span></span>
+            <span>Total: <span id="latency" class="text-gray-600">0ms</span></span>
         </div>
     </div>
 
@@ -72,7 +88,7 @@
             <div class="flex-1 relative">
                 <input id="input" 
                     class="w-full bg-gray-50 border border-gray-200 text-gray-800 p-4 rounded-2xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition-all placeholder:text-gray-400 text-sm" 
-                    placeholder="Describe your security issue..." 
+                    placeholder="How can I help you with your account security today?" 
                     autocomplete="off">
             </div>
             <button type="submit" 
@@ -91,16 +107,40 @@
     const topicLabel = document.getElementById('topic-label');
     const sidLabel = document.getElementById('sid-label');
     const resetBtn = document.getElementById('reset-btn');
+    const healthLabel = document.getElementById('health-status');
+    const indicator = document.getElementById('status-indicator');
 
     let sessionId = localStorage.getItem('blossom_session_id') || "BSM-" + Math.random().toString(36).substring(2, 8).toUpperCase();
     let currentTopic = null;
     let chatHistory = [];
 
+    // Health check logic
+    async function checkHealth() {
+        try {
+            const res = await fetch('/health');
+            const data = await res.json();
+            if(data.status === 'healthy') {
+                indicator.className = "absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full";
+                healthLabel.textContent = "(Online)";
+                healthLabel.className = "normal-case font-normal text-emerald-500";
+            }
+        } catch (e) {
+            indicator.className = "absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-red-500 border-2 border-white rounded-full";
+            healthLabel.textContent = "(Offline)";
+            healthLabel.className = "normal-case font-normal text-red-400";
+        }
+    }
+
+    function quickAsk(text) {
+        i.value = text;
+        f.dispatchEvent(new Event('submit'));
+    }
+
     async function sendMessage(msg, isSilent = false) {
         if (!isSilent) {
             c.innerHTML += `
             <div class="flex flex-col items-end chat-bubble">
-                <div class="bg-white border border-gray-100 text-gray-800 p-4 rounded-2xl rounded-tr-none max-w-[80%] shadow-sm">
+                <div class="bg-emerald-600 text-white p-4 rounded-2xl rounded-tr-none max-w-[80%] shadow-md">
                     <p class="text-sm leading-relaxed">${msg}</p>
                 </div>
                 <span class="text-[9px] text-gray-400 mt-2 mr-2 uppercase font-bold">You</span>
@@ -111,7 +151,7 @@
         if (!isSilent) {
             c.innerHTML += `
             <div id="${loadingId}" class="flex flex-col items-start chat-bubble">
-                <div class="bg-emerald-50 p-4 rounded-2xl rounded-tl-none flex items-center gap-1 border border-emerald-100">
+                <div class="bg-white p-4 rounded-2xl rounded-tl-none flex items-center gap-1 border border-gray-100 shadow-sm">
                     <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>
                 </div>
             </div>`;
@@ -140,14 +180,13 @@
 
             currentTopic = data.topic;
             chatHistory = data.history || [];
-            
             topicLabel.textContent = currentTopic || "Security";
             
             const respId = 'resp-' + Date.now();
             c.innerHTML += `
                 <div class="flex flex-col items-start chat-bubble">
                     <div class="bg-white border border-emerald-100 p-5 rounded-2xl rounded-tl-none max-w-[85%] shadow-sm border-l-4 border-l-emerald-500">
-                        <p id="${respId}" class="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap"></p>
+                        <div id="${respId}" class="prose text-sm text-gray-700 leading-relaxed whitespace-pre-wrap"></div>
                         <div id="cite-${respId}" class="mt-4 pt-3 border-t border-gray-50 text-[10px] text-emerald-600 font-semibold italic flex items-center gap-2"></div>
                     </div>
                     <span class="text-[9px] text-emerald-600 font-bold mt-2 ml-2 uppercase tracking-widest">Blossom AI</span>
@@ -157,9 +196,14 @@
             const citeDiv = document.getElementById(`cite-${respId}`);
             
             const parts = data.answer.split("\n\n—\n");
-            respDiv.textContent = parts[0];
+            
+            // Renderizar Markdown
+            respDiv.innerHTML = marked.parse(parts[0]);
+            
             if (parts[1]) {
-                citeDiv.innerHTML = `<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg> ${parts[1].replace("Source: ", "")}`;
+                citeDiv.innerHTML = `<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg> ${parts[1].replace("Source: ", "")}`;
+            } else {
+                citeDiv.remove();
             }
 
             l.textContent = `${Date.now() - startTime}ms`;
@@ -168,7 +212,7 @@
 
         } catch (err) {
             const loadEl = document.getElementById(loadingId);
-            if(loadEl) loadEl.innerHTML = `<span class="text-red-500 text-[10px] font-bold uppercase tracking-tight">Connectivity Error</span>`;
+            if(loadEl) loadEl.innerHTML = `<div class="bg-red-50 text-red-500 p-4 rounded-xl border border-red-100 text-xs font-bold uppercase">Connection Timeout</div>`;
         }
     }
 
@@ -179,7 +223,7 @@
     };
 
     resetBtn.onclick = () => { 
-        if (confirm('Are you sure you want to clear your security session?')) { 
+        if (confirm('Clear your secure session history?')) { 
             localStorage.clear(); 
             location.reload(); 
         } 
@@ -188,7 +232,9 @@
     window.addEventListener('DOMContentLoaded', () => {
         sidLabel.textContent = sessionId;
         localStorage.setItem('blossom_session_id', sessionId);
+        checkHealth();
         sendMessage("warmup", true);
+        i.focus();
     });
     </script>
 </body>

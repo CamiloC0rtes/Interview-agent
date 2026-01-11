@@ -1,5 +1,4 @@
-import time, json, datetime, logging
-import os
+import time, json, datetime, logging, os
 from fastapi import FastAPI, Request
 from contextlib import asynccontextmanager
 from fastapi.responses import StreamingResponse, FileResponse
@@ -10,6 +9,7 @@ from src.agent import blossom_app, stream_llm_response, call_mcp_holidays
 import src.agent as agent_module
 from src.database import run_ingestion
 
+# --- Logging Configuration ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("blossom_main")
 
@@ -31,17 +31,16 @@ class ChatResponse(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Handles system warm-up and state hydration on startup."""
+    """System warm-up and state hydration sequence."""
     logger.info("Initializing Blossom AI Engine...")
     try:
-        # 1. Prepare Vector Store (Persistence check)
+        # 1. Database persistence check
         run_ingestion(force_rebuild=False)
         
-        # 2. Hydrate MCP Cache (Federal Holidays)
-        # source: federal holiday API
+        # 2. Global MCP cache hydration (source: federal holiday API)
         agent_module._CACHED_HOLIDAYS = await call_mcp_holidays()
         
-        # 3. Warm-up invocation to eliminate cold-start latency
+        # 3. Agent warm-up to mitigate cold-start latency
         await blossom_app.ainvoke({
             "message": "warmup", 
             "user_date": datetime.date.today().strftime("%Y-%m-%d"), 
@@ -57,24 +56,25 @@ app = FastAPI(lifespan=lifespan)
 
 @app.middleware("http")
 async def add_latency_header(request: Request, call_next):
-    """Observability Middleware for real-time SLA tracking."""
+    """Middleware for real-time SLA tracking and observability."""
     start_time = time.perf_counter()
     response = await call_next(request)
     process_time = (time.perf_counter() - start_time) * 1000
     
-    # Expose processing metrics via headers
+    # Custom headers for monitoring
     response.headers["X-Process-Time-Ms"] = str(round(process_time, 2))
     response.headers["X-SLA-Status"] = "MET" if process_time < 5000 else "BREACHED"
     return response
 
 @app.get("/")
 async def get_index(): 
+    """Serves the main web interface."""
     static_path = os.path.join(os.getcwd(), 'src', 'static', 'index.html')
     return FileResponse(static_path)
 
 @app.get("/health")
 async def health(): 
-    """Liveness probe for monitoring tools."""
+    """Liveness probe for infrastructure health monitoring."""
     return {
         "status": "healthy", 
         "timestamp": datetime.datetime.now().isoformat(),
@@ -84,7 +84,7 @@ async def health():
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(req: ChatRequest):
-    """Main execution endpoint for the LangGraph agent."""
+    """Main execution entry point for the LangGraph agent."""
     start_time = time.perf_counter()
     result = await blossom_app.ainvoke(req.model_dump())
     duration_ms = (time.perf_counter() - start_time) * 1000
@@ -99,7 +99,7 @@ async def chat_endpoint(req: ChatRequest):
 
 @app.get("/chat/stream")
 async def chat_stream(message: str):
-    """Direct stream access for UI progressive rendering."""
+    """SSE endpoint for progressive UI rendering."""
     async def event_generator():
         async for token in stream_llm_response("You are Blossom.", [], message):
             yield f"data: {json.dumps({'token': token})}\n\n"
