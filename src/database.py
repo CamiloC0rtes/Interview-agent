@@ -25,13 +25,18 @@ _RETRIEVER_INSTANCE = None
 _CHROMA_CLIENT = None
 
 def get_chroma_client():
-    """Crea el cliente solo cuando se solicita, evitando el Error 14 al importar."""
     global _CHROMA_CLIENT
     if _CHROMA_CLIENT is None:
-        # Aseguramos que la carpeta exista con permisos justo antes de abrirla
-        os.makedirs(CHROMA_PATH, exist_ok=True)
         try:
-            _CHROMA_CLIENT = chromadb.PersistentClient(path=CHROMA_PATH)
+            # Forzar la creación del directorio si no existe
+            if not os.path.exists(CHROMA_PATH):
+                os.makedirs(CHROMA_PATH, mode=0o777, exist_ok=True)
+            
+            # Inicializar cliente con configuraciones de robustez
+            _CHROMA_CLIENT = chromadb.PersistentClient(
+                path=CHROMA_PATH,
+                settings=chromadb.Settings(allow_reset=True, anonymized_telemetry=False)
+            )
             logger.info(f"ChromaDB initialized successfully at {CHROMA_PATH}")
         except Exception as e:
             logger.error(f"Error opening ChromaDB: {e}")
