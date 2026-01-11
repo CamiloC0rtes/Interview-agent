@@ -194,6 +194,7 @@ async def generate_greeting(user_msg: str, history: list) -> str:
 # -------------------------
 @time_logger
 async def blossom_node(state: AgentState):
+    topic=None
     """Core Blossom Agent Node with Domain Gating and RAG + MCP integration."""
     user_msg = state["message"].strip()
     history = state.get("history", [])
@@ -212,14 +213,6 @@ async def blossom_node(state: AgentState):
     retrieve_docs(user_msg) if is_in_scope else asyncio.sleep(0, []),
     fetch_holiday_name(user_date_str)
     )
- 
-    system_prompt = build_prompt(docs, day_name, user_date_str, holiday_name)
-
-  
-    chunks = [t async for t in stream_llm_response(system_prompt, history, user_msg)]
-    full_response = "".join(chunks).strip()
-    topic=None
-
     if check_greeting(user_msg) or topic=="Greeting":
         greeting_response = await generate_greeting(user_msg, history)
         return {
@@ -236,6 +229,12 @@ async def blossom_node(state: AgentState):
             "history": (history + [{"role": "user", "content": user_msg}, {"role": "assistant", "content": out_of_scope_response}])[-10:],
             "latency_ms": 0
         }
+ 
+    system_prompt = build_prompt(docs, day_name, user_date_str, holiday_name)
+
+  
+    chunks = [t async for t in stream_llm_response(system_prompt, history, user_msg)]
+    full_response = "".join(chunks).strip()
     
     if is_in_scope and docs:
         docs_with_tags = [d for d in docs if d.metadata.get("tags")]
