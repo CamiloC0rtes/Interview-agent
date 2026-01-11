@@ -196,7 +196,7 @@ def should_allow_steps(user_msg: str, last_topic: Optional[str]) -> bool:
     asks_for_steps = any(kw in msg_lower for kw in steps_keywords)
     
     if asks_for_steps:
-        if last_topic == "Security/Login" or last_topic == "MFA":
+        if last_topic !='GREETING' and last_topic != 'Out of Scope' and last_topic is not None:
             return True
         return False  
         
