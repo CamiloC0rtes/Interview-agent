@@ -208,31 +208,18 @@ def should_allow_steps(user_msg: str, last_topic: Optional[str]) -> bool:
 # -------------------------
 @time_logger
 async def blossom_node(state: AgentState):
+    """Core Blossom Agent Node with contextual step validation."""
     user_msg = state["message"].strip()
     history = state.get("history", [])
     user_date_str = state.get("user_date", datetime.now().strftime("%Y-%m-%d"))
     current_dt = datetime.strptime(user_date_str, "%Y-%m-%d")
     day_name = current_dt.strftime("%A")
-    
     last_topic = state.get("topic")
 
+    # 1. Global Handlers (Farewell / Greetings)
     if check_farewell(user_msg):
         farewell_message = await generate_farewell(user_msg, history)
         return {"answer": farewell_message, "topic": None, "history": [], "latency_ms": 0}
-
-    if not should_allow_steps(user_msg, last_topic):
-        out_of_scope_response = await generate_out_of_scope_response(user_msg, history)
-        return {
-            "answer": out_of_scope_response, 
-            "topic": "Out of Scope", 
-            "history": (history + [{"role": "user", "content": user_msg}, {"role": "assistant", "content": out_of_scope_response}])[-10:]
-        }
-
-    is_in_scope = determine_scope(user_msg)
-    docs, holiday_name = await asyncio.gather(
-        retrieve_docs(user_msg) if is_in_scope else asyncio.sleep(0, []),
-        fetch_holiday_name(user_date_str)
-    )
 
     if check_greeting(user_msg):
         greeting_response = await generate_greeting(user_msg, history)
@@ -242,6 +229,36 @@ async def blossom_node(state: AgentState):
             "history": (history + [{"role": "user", "content": user_msg}, {"role": "assistant", "content": greeting_response}])[-10:]
         }
 
+    # 2. Contextual Validation (Your should_allow_steps function logic)
+    # If they ask for steps but the previous topic was NOT allowed, block it immediately.
+    if not should_allow_steps(user_msg, last_topic):
+        out_of_scope_response = await generate_out_of_scope_response(user_msg, history)
+        return {
+            "answer": out_of_scope_response,
+            "topic": "Out of Scope",
+            "history": (history + [{"role": "user", "content": user_msg}, {"role": "assistant", "content": out_of_scope_response}])[-10:]
+        }
+
+    # 3. Continuation Logic & Search Query Definition
+    # We check if it's a "continuation" to inherit the last subject
+    steps_keywords = {"steps", "more", "instructions", "guide", "procedure"}
+    is_continuation = any(kw in user_msg.lower() for kw in steps_keywords)
+
+    if is_continuation and history:
+        # We inherit the last user question as the search query for RAG
+        search_query = next((m["content"] for m in reversed(history) if m["role"] == "user"), user_msg)
+        logger.info(f"Context inherited for steps: '{search_query}'")
+    else:
+        search_query = user_msg
+
+    # 4. Scope Check & RAG
+    is_in_scope = determine_scope(search_query)
+    docs, holiday_name = await asyncio.gather(
+        retrieve_docs(search_query) if is_in_scope else asyncio.sleep(0, []),
+        fetch_holiday_name(user_date_str)
+    )
+
+    # 5. Out of Scope Fallback (No docs or wrong domain)
     if not is_in_scope or (is_in_scope and not docs):
         out_of_scope_response = await generate_out_of_scope_response(user_msg, history)
         return {
@@ -250,10 +267,12 @@ async def blossom_node(state: AgentState):
             "history": (history + [{"role": "user", "content": user_msg}, {"role": "assistant", "content": out_of_scope_response}])[-10:]
         }
 
+    # 6. Technical Grounded Response
     system_prompt = build_prompt(docs, day_name, user_date_str, holiday_name)
     chunks = [t async for t in stream_llm_response(system_prompt, history, user_msg)]
     full_response = "".join(chunks).strip()
 
+    # Determine current topic from Metadata
     current_topic = "Security/Login"
     source_tag = ""
     if docs:
