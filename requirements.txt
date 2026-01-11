@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+pydantic
+langchain-openai
+langchain-chroma
+langchain-community  
+pypdf                
+langchain-text-splitters
+langgraph
+langgraph-checkpoint-sqlite
+mcp
+tenacity
+python-dotenv
