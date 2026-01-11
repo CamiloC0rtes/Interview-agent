@@ -97,6 +97,13 @@ async def stream_llm_response(system_prompt, history, user_message, temp=0.2, to
 # -------------------------
 # Domain / Keyword Checks
 # -------------------------
+def check_greeting(user_msg: str) -> bool:
+    """Detecta si el usuario está saludando o usando expresiones corteses."""
+    greetings = {"hi", "hello", "hey", "good morning", "good afternoon", "good evening"}
+    polite_closings = {"thanks", "thank you", "thx", "ty", "appreciate it", "much appreciated"}
+    msg_lower = user_msg.lower()
+    return any(g in msg_lower for g in greetings.union(polite_closings))
+
 def check_farewell(user_msg: str) -> bool:
     """Return True if the user wants to end the session."""
     reset_keywords = {"thanks", "thank you", "i'm done", "done", "no thanks", "stop"}
@@ -159,6 +166,29 @@ async def generate_farewell(user_msg: str, history: list) -> str:
     chunks = [t async for t in stream_llm_response(system_prompt, history, user_msg)]
     return "".join(chunks).strip()
 
+async def generate_out_of_scope_response(user_msg: str, history: list) -> str:
+    """Genera una respuesta natural cuando el mensaje está fuera de scope."""
+    system_prompt = (
+        "You are Blossom, a helpful and polite banking assistant. "
+        "The user asked something outside your allowed scope (only login, password, MFA, or security). "
+        "Respond naturally, politely redirect them to customer support be concise and drastically "
+        "and maintain a friendly tone."
+    )
+    chunks = [t async for t in stream_llm_response(system_prompt, history, user_msg)]
+    return "".join(chunks).strip()
+
+async def generate_greeting(user_msg: str, history: list) -> str:
+    """Genera un saludo natural usando el LLM."""
+    system_prompt = (
+        "You are Blossom, a friendly and warm banking assistant. "
+        "The user just greeted you or said something polite. "
+        "Respond naturally, acknowledging their greeting, "
+        "and mention that you help with login, password, MFA, or security topics."
+    )
+    chunks = [t async for t in stream_llm_response(system_prompt, history, user_msg)]
+    return "".join(chunks).strip()
+
+
 # -------------------------
 # Core Agent Node
 # -------------------------
@@ -188,10 +218,25 @@ async def blossom_node(state: AgentState):
   
     chunks = [t async for t in stream_llm_response(system_prompt, history, user_msg)]
     full_response = "".join(chunks).strip()
+    topic=None
 
-
-    source_tag = ""
-    topic = "Security/Login"
+    if check_greeting(user_msg) or topic=="Greeting":
+        greeting_response = await generate_greeting(user_msg, history)
+        return {
+                "answer": greeting_response,
+                "topic": "Greeting",
+                "history": (history + [{"role": "user", "content": user_msg}, {"role": "assistant", "content": greeting_response}])[-10:],
+                "latency_ms": 0
+            }
+    if not is_in_scope or topic=="Out of Scope":
+        out_of_scope_response = await generate_out_of_scope_response(user_msg, history)
+        return {
+            "answer": out_of_scope_response,
+            "topic": "Out of Scope",
+            "history": (history + [{"role": "user", "content": user_msg}, {"role": "assistant", "content": out_of_scope_response}])[-10:],
+            "latency_ms": 0
+        }
+    
     if is_in_scope and docs:
         docs_with_tags = [d for d in docs if d.metadata.get("tags")]
         if docs_with_tags:
