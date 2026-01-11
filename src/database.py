@@ -9,15 +9,27 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
 
-CHROMA_PATH = "./chroma_db"
-DATA_PATH = "./data"
-# Path for the descriptive dictionary
+# --- CORRECCIÓN DE RUTAS PARA RAILWAY ---
+# Usamos el directorio de trabajo actual para asegurar permisos de escritura
+BASE_DIR = os.getcwd() 
+CHROMA_PATH = os.path.join(BASE_DIR, "chroma_db")
+DATA_PATH = os.path.join(BASE_DIR, "data")
 MAPPING_EXPORT_PATH = os.path.join(CHROMA_PATH, "embeddings_mapping.json")
+
+# Asegurar que los directorios existan ANTES de inicializar Chroma
+os.makedirs(CHROMA_PATH, exist_ok=True)
+os.makedirs(DATA_PATH, exist_ok=True)
 
 logger = logging.getLogger("blossom_agent.database")
 _RETRIEVER_INSTANCE = None
-_CHROMA_CLIENT = chromadb.PersistentClient(path=CHROMA_PATH)
 
+# Inicialización segura del cliente persistente
+try:
+    _CHROMA_CLIENT = chromadb.PersistentClient(path=CHROMA_PATH)
+    logger.info(f"ChromaDB client initialized at {CHROMA_PATH}")
+except Exception as e:
+    logger.error(f"Failed to initialize ChromaDB: {e}")
+    raise
 ALLOWED_DOCS = [
     "Magic Training — Back Office",
     "Magic Training (Member admin)",
@@ -79,27 +91,24 @@ def _export_embeddings_dictionary(chunks):
     logger.info(f"Embeddings dictionary exported to {MAPPING_EXPORT_PATH}")
 
 def run_ingestion(force_rebuild: bool = False) -> bool:
-    """
-    Persists embeddings in a local folder. 
-    If chroma.sqlite3 exists, it skips the process to save costs/time.
-    """
-    os.makedirs(CHROMA_PATH, exist_ok=True)
-    db_exists = os.path.exists(os.path.join(CHROMA_PATH, "chroma.sqlite3"))
+    """Persists embeddings. If chroma.sqlite3 exists, skips to save costs."""
+    # Verificación adicional de existencia de la DB
+    db_file = os.path.join(CHROMA_PATH, "chroma.sqlite3")
+    db_exists = os.path.exists(db_file)
     
     if not force_rebuild and db_exists:
-        logger.info("Local Chroma DB found. Skipping ingestion to reuse existing embeddings.")
+        logger.info("Local Chroma DB found. Skipping ingestion.")
         return True
 
-    logger.info("Initializing ingestion: Creating local embeddings and dictionary...")
+    logger.info("Starting ingestion process...")
     documents = _load_pdf_documents()
     if not documents:
-        logger.warning("No documents found to ingest.")
+        logger.warning("No documents found in DATA_PATH to ingest.")
         return False
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
     chunks = splitter.split_documents(documents)
 
-    # Save to local folder using the shared client
     Chroma.from_documents(
         documents=chunks,
         embedding=OpenAIEmbeddings(model=os.getenv("EMBEDDING_MODEL_NAME", "text-embedding-3-small")),
@@ -107,9 +116,7 @@ def run_ingestion(force_rebuild: bool = False) -> bool:
         collection_name="blossom_security_v1"
     )
     
-    # Generate the readable JSON dictionary
     _export_embeddings_dictionary(chunks)
-    
     logger.info(f"Success: Vector store persisted in {CHROMA_PATH}.")
     return True
 
@@ -121,5 +128,6 @@ def get_active_retriever():
             collection_name="blossom_security_v1",
             embedding_function=OpenAIEmbeddings(model=os.getenv("EMBEDDING_MODEL_NAME", "text-embedding-3-small")),
         )
-        _RETRIEVER_INSTANCE = vector_db.as_retriever(search_kwargs={"k": 2})
+        # Aumentamos a k=3 para aprovechar mejor los embeddings en las respuestas
+        _RETRIEVER_INSTANCE = vector_db.as_retriever(search_kwargs={"k": 3})
     return _RETRIEVER_INSTANCE
