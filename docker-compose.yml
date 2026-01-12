@@ -6,7 +6,6 @@ services:
       - "8000:8000"
     volumes:
       - ./data:/app/data
-      # CAMBIO: Usamos una ruta relativa para que sea visible en tu explorador
       - ./chroma_db:/app/chroma_db 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -14,5 +13,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
-
-# Ya no necesitas declarar blossom_vector_db aquí si usas la ruta relativa
